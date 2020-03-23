@@ -12,7 +12,7 @@ occurrences <- read.table(file.path("data","raw_data", "occurrence.txt"), header
 data <- merge(events, occurrences, by = "id")
 
 # Select specific columns
-var <- c("id", "occurrenceID", "eventDate",
+var <- c("id", "eventDate",
          "decimalLatitude", "decimalLongitude", "geodeticDatum",
          "minimumDepthInMeters", "maximumDepthInMeters", "scientificName",
          "scientificNameID", "individualCount", "sampleSizeValue")
@@ -62,6 +62,16 @@ data$scientificName[grep("Oithona", data$scientificName, ignore.case = TRUE)] <-
 data$scientificNameID[grep("Oithona", data$scientificName, ignore.case = TRUE)] <- "urn:lsid:marinespecies.org:taxname:106485"
 data$aphiaID[grep("Oithona", data$scientificName, ignore.case = TRUE)] <- 106485
 
+# Aggregate counts using dplyr v 0.8.3
+library(dplyr)
+packageVersion("dplyr")
+
+data <- data %>% mutate(individualCount = as.integer(individualCount)
+           ) %>% group_by(id, aphiaID
+           ) %>% mutate(individualCount = sum(individualCount)
+           ) %>% distinct(
+           ) %>% ungroup()
+
 # Calculate number of individuals per cubic meter - new abundance column 
 data$abundance <- as.integer(data$individualCount) / as.integer(data$sampleSizeValue)
 data$abundanceUnit <- "ind/m3"
@@ -73,5 +83,8 @@ data$logAbundance <- log(data$abundance + 1)
 
 # Save as csv
 write.csv(data,
-          file.path("data","derived_data", "data.csv")
+          file.path("data","derived_data", "data.csv"),
+          fileEncoding = 'UTF-8',
+          row.names = FALSE,
+          na = ""
 )
