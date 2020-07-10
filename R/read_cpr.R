@@ -1,5 +1,5 @@
 # Download the CPR data
-downloader::download("https://www.dassh.ac.uk/ipt/archive.do?r=cpr_public&v=1.2", dest = file.path("data","raw_data", "dataset.zip"), mode = "wb")
+downloader::download("https://www.dassh.ac.uk/ipt/archive.do?r=cpr_public", dest = file.path("data","raw_data", "dataset.zip"), mode = "wb")
 unzip(file.path("data","raw_data", "dataset.zip"),
       exdir = file.path("data","raw_data")
 )
