@@ -9,49 +9,65 @@ download.file(wfs_request, dest = file.path("data","raw_data", "data_cpr.csv"), 
 
 #---- Workflow  ----
 # Read data
-data_cpr <- readr::read_csv('./data/raw_data/data_cpr.csv')
+data_cpr1 <- readr::read_csv(file.path("data","raw_data", "data_cpr.csv"))
 
-# Select columns
-data_cpr <- data_cpr %>% select(
-  datecollected, decimallatitude, decimallongitude,
-  minimumdepthinmeters, maximumdepthinmeters, scientificname, scientificnameid,
-  parameter, parameter_value, parameter_measurementtypeid, parameter_bodcterm, parameter_original_measurement_type
+# Rename to terms in previous script. See commit 21024fe
+
+# Change names to previous terms, add missing values and select columns
+data_cpr <- data_cpr %>% transmute(
+  eventDate = datecollected,
+  decimalLatitude = decimallatitude,
+  decimalLongitude = decimallongitude,
+  minimumDepthInMeters = minimumdepthinmeters,
+  maximumDepthInMeters = maximumdepthinmeters,
+  geodeticDatum = "EPSG:4326",
+  scientificName = scientificname,
+  scientificNameID = scientificnameid,
+  aphiaID = as.integer(gsub("http://marinespecies.org/aphia.php?p=taxdetails&id=", "", aphiaid, fixed = TRUE)),
+  individualCount = parameter_value,
+  sampleSizeValue = 3, # Volume was always 3m^3 according to metadata
+  countMeasurementTypeID = parameter_measurementtypeid
 )
 
 # Low Acartia and Oithona species taxonomy to genus
-data_cpr$scientificname[grep("Acartia", data_cpr$scientificname, ignore.case = TRUE)] <- "Acartia"
-data_cpr$scientificnameid[grep("Acartia", data_cpr$scientificname, ignore.case = TRUE)] <- "urn:lsid:marinespecies.org:taxname:104108"
+data_cpr$scientificName[grep("Acartia", data_cpr$scientificName, ignore.case = TRUE)] <- "Acartia"
+data_cpr$scientificNameID[grep("Acartia", data_cpr$scientificName, ignore.case = TRUE)] <- "urn:lsid:marinespecies.org:taxname:104108"
+data_cpr$aphiaID[grep("Acartia", data_cpr$scientificName, ignore.case = TRUE)] <- 104108
 
-data_cpr$scientificname[grep("Oithona", data_cpr$scientificname, ignore.case = TRUE)] <- "Oithona"
-data_cpr$scientificnameid[grep("Oithona", data_cpr$scientificname, ignore.case = TRUE)] <- "urn:lsid:marinespecies.org:taxname:106485"
-
-# Add aphiaid column
-data_cpr$aphiaid <- as.integer(gsub("urn:lsid:marinespecies.org:taxname:", "", data_cpr$scientificnameid))
+data_cpr$scientificName[grep("Oithona", data_cpr$scientificName, ignore.case = TRUE)] <- "Oithona"
+data_cpr$scientificNameID[grep("Oithona", data_cpr$scientificName, ignore.case = TRUE)] <- "urn:lsid:marinespecies.org:taxname:106485"
+data_cpr$aphiaID[grep("Oithona", data_cpr$scientificName, ignore.case = TRUE)] <- 106485
 
 # Split occurrences with and without Count
-data_cpr_na <- subset(data_cpr, data_cpr$parameter_measurementtypeid != "http://vocab.nerc.ac.uk/collection/P01/current/OCOUNT01/" | is.na(data_cpr$parameter_measurementtypeid))
-data_cpr <- subset(data_cpr, data_cpr$parameter_measurementtypeid == "http://vocab.nerc.ac.uk/collection/P01/current/OCOUNT01/")
+data_cpr_na <- subset(data_cpr, data_cpr$countMeasurementTypeID != "http://vocab.nerc.ac.uk/collection/P01/current/OCOUNT01/" | is.na(data_cpr$countMeasurementTypeID))
+data_cpr <- subset(data_cpr, data_cpr$countMeasurementTypeID == "http://vocab.nerc.ac.uk/collection/P01/current/OCOUNT01/")
+
+# Save data_cpr_na as csv, without count, abundance nor log abundance
+data_cpr_na %>% mutate(abundance = NA,
+                       abundanceUnit = NA,
+                       abundanceMeasurementUnitID = NA,
+                       abundanceMeasurementTypeID = NA,
+                       logAbundance = ""
+          ) %>% dplyr::arrange(eventDate, decimalLatitude, decimalLongitude, aphiaID
+          ) %>% write.csv(file.path("data","derived_data", "data_cpr_na.csv"), fileEncoding = 'UTF-8', row.names = FALSE, na = "")
 
 # Aggregate counts
-data_cpr <- data_cpr %>% dplyr::group_by(datecollected, decimallatitude, decimallongitude, aphiaid
-                   ) %>% dplyr::arrange(datecollected, decimallatitude, decimallongitude, aphiaid
-                   ) %>% dplyr::mutate(parameter_value = sum(parameter_value)
+data_cpr <- data_cpr %>% dplyr::group_by(eventDate, decimalLatitude, decimalLongitude, aphiaID
+                   ) %>% dplyr::arrange(eventDate, decimalLatitude, decimalLongitude, aphiaID
+                   ) %>% dplyr::mutate(individualCount = sum(individualCount)
                    ) %>% dplyr::distinct(
                    ) %>% dplyr::ungroup()
 
-# Calculate number of individuals per cubic meter - Volume was always 3m^3 according to metadata
-data_cpr$abundance <- as.integer(data_cpr$parameter_value) / 3
-data_cpr$abundanceUnit <- "ind/m3"
-data_cpr$abundanceMeasurementTypeID <- "http://vocab.nerc.ac.uk/collection/P01/current/SDBIOL01/"
-data_cpr$abundanceMeasurementUnitID <- "http://vocab.nerc.ac.uk/collection/P06/current/UPMM/"
 
-# Calculate the log abundance
-data_cpr$logAbundance <- log(data_cpr$abundance + 1)
-
-# Add occurrences without count, abundance nor log abundance
-data_cpr <- data_cpr_na %>% dplyr::mutate(abundance = NA, abundanceUnit = NA, abundanceMeasurementUnitID = NA, abundanceMeasurementTypeID = NA, logAbundance = NA
-                      ) %>% rbind(data_cpr
-                      ) %>% dplyr::arrange(datecollected, aphiaid)
+# Calculate number of individuals per cubic meter. Calculate log abundance
+data_cpr <- data_cpr %>% mutate(
+  abundance = as.integer(data_cpr$individualCount) / sampleSizeValue,
+  abundanceUnit = "ind/m3",
+  abundanceMeasurementTypeID = "http://vocab.nerc.ac.uk/collection/P01/current/SDBIOL01/",
+  abundanceMeasurementUnitID = "http://vocab.nerc.ac.uk/collection/P06/current/UPMM/"
+) %>% mutate(
+  logAbundance = log(abundance + 1)
+)
 
 # Save as csv
 write.csv(data_cpr, file.path("data","derived_data", "data_cpr.csv"), fileEncoding = 'UTF-8', row.names = FALSE, na = "")
